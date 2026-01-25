@@ -1,0 +1,119 @@
+{{/*
+=============================================================================
+User Service Deployment
+=============================================================================
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "user-service.fullname" . }}
+  labels:
+    {{- include "user-service.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "user-service.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        # Force pod restart on config/secret change
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+      labels:
+        {{- include "user-service.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "user-service.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: {{ include "user-service.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.config.flask.port }}
+              protocol: TCP
+          env:
+            # JWT Secret from Kubernetes Secret
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "user-service.secretName" . }}
+                  key: jwt-secret
+            # Load configuration from ConfigMap
+            - name: FLASK_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "user-service.configMapName" . }}
+                  key: FLASK_HOST
+            - name: FLASK_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "user-service.configMapName" . }}
+                  key: FLASK_PORT
+            - name: FLASK_DEBUG
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "user-service.configMapName" . }}
+                  key: FLASK_DEBUG
+            - name: JWT_EXPIRATION_HOURS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "user-service.configMapName" . }}
+                  key: JWT_EXPIRATION_HOURS
+            - name: DATABASE_PATH
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "user-service.configMapName" . }}
+                  key: DATABASE_PATH
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "user-service.pvcName" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+

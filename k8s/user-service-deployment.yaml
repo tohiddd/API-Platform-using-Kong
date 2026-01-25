@@ -1,0 +1,233 @@
+# =============================================================================
+# User Service Deployment Configuration
+# =============================================================================
+#
+# Key Concept: Kubernetes Deployment
+# -----------------------------------
+# A Deployment provides declarative updates for Pods and ReplicaSets.
+# You describe a desired state, and the Deployment Controller changes
+# the actual state to the desired state at a controlled rate.
+#
+# Key Features:
+# - Rolling updates with zero downtime
+# - Rollback to previous versions
+# - Scaling (horizontal pod autoscaling)
+# - Self-healing (restarts failed containers)
+#
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: api-platform
+  labels:
+    app: user-service
+    version: v1
+    # Standard Kubernetes labels
+    app.kubernetes.io/name: user-service
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: api-platform
+spec:
+  # Number of pod replicas
+  # For production, consider using HorizontalPodAutoscaler instead
+  replicas: 2
+  
+  # Selector to identify pods managed by this deployment
+  selector:
+    matchLabels:
+      app: user-service
+  
+  # Pod template specification
+  template:
+    metadata:
+      labels:
+        app: user-service
+        version: v1
+      annotations:
+        # Prometheus metrics scraping (if using Prometheus)
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5000"
+        prometheus.io/path: "/health"
+    spec:
+      # Security context for the pod
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      
+      containers:
+        - name: user-service
+          # Image will be set by Helm or replaced during deployment
+          image: user-service:latest
+          imagePullPolicy: IfNotPresent
+          
+          ports:
+            - name: http
+              containerPort: 5000
+              protocol: TCP
+          
+          # Environment variables
+          env:
+            # JWT secret from Kubernetes Secret
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: user-service-secrets
+                  key: jwt-secret
+            
+            # Database path (using persistent volume)
+            - name: DATABASE_PATH
+              value: /app/data/users.db
+            
+            # Flask configuration
+            - name: FLASK_HOST
+              value: "0.0.0.0"
+            - name: FLASK_PORT
+              value: "5000"
+            - name: FLASK_DEBUG
+              value: "false"
+            
+            # JWT expiration (24 hours)
+            - name: JWT_EXPIRATION_HOURS
+              value: "24"
+          
+          # Resource limits and requests
+          # Key Concept: Resource Management
+          # - requests: Minimum resources guaranteed
+          # - limits: Maximum resources allowed
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+          
+          # Volume mounts
+          volumeMounts:
+            - name: data-volume
+              mountPath: /app/data
+          
+          # Liveness probe
+          # Key Concept: Health Checks
+          # Liveness: Is the container running? If not, restart it.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          
+          # Readiness probe
+          # Readiness: Is the container ready to serve traffic?
+          # If not ready, remove from service endpoints.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          
+          # Security context for container
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+      
+      # Volumes
+      volumes:
+        - name: data-volume
+          # For development: emptyDir (data lost when pod restarts)
+          # For production: Use PersistentVolumeClaim
+          emptyDir: {}
+      
+      # Restart policy (Always for Deployments)
+      restartPolicy: Always
+      
+      # DNS policy
+      dnsPolicy: ClusterFirst
+      
+      # Termination grace period
+      terminationGracePeriodSeconds: 30
+
+---
+# =============================================================================
+# User Service - Kubernetes Service
+# =============================================================================
+#
+# Key Concept: Kubernetes Service
+# --------------------------------
+# A Service is an abstraction that defines a logical set of Pods and a policy
+# to access them. Services enable network access to pods.
+#
+# Service Types:
+# - ClusterIP: Internal cluster access only (default)
+# - NodePort: Exposes on each node's IP at a static port
+# - LoadBalancer: Exposes externally using cloud provider's load balancer
+# - ExternalName: Maps to an external DNS name
+#
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+  namespace: api-platform
+  labels:
+    app: user-service
+    app.kubernetes.io/name: user-service
+    app.kubernetes.io/component: backend
+spec:
+  # ClusterIP: Only accessible within the cluster
+  # Kong will route external traffic to this service
+  type: ClusterIP
+  
+  # Selector to find pods
+  selector:
+    app: user-service
+  
+  # Port configuration
+  ports:
+    - name: http
+      port: 80           # Service port (what clients connect to)
+      targetPort: http   # Pod port (named port from deployment)
+      protocol: TCP
+
+---
+# =============================================================================
+# User Service Secrets
+# =============================================================================
+#
+# Key Concept: Kubernetes Secrets
+# --------------------------------
+# Secrets are used to store sensitive information like passwords, tokens,
+# and keys. They are stored in etcd and can be mounted as files or
+# environment variables.
+#
+# IMPORTANT: In production:
+# - Use external secret management (HashiCorp Vault, AWS Secrets Manager)
+# - Enable encryption at rest for etcd
+# - Use RBAC to restrict secret access
+#
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: user-service-secrets
+  namespace: api-platform
+  labels:
+    app: user-service
+type: Opaque
+# IMPORTANT: Replace these values in production!
+# Values are base64 encoded
+# To encode: echo -n "your-secret" | base64
+# To decode: echo "encoded-value" | base64 -d
+stringData:
+  # JWT secret key - CHANGE THIS IN PRODUCTION
+  jwt-secret: "your-super-secret-jwt-key-change-in-production"
+

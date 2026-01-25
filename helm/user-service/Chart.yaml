@@ -1,0 +1,61 @@
+# =============================================================================
+# Helm Chart: User Service
+# =============================================================================
+#
+# Key Concept: Helm Charts
+# -------------------------
+# Helm is the package manager for Kubernetes. Charts are packages of
+# pre-configured Kubernetes resources.
+#
+# Benefits:
+# - Templating: Parameterize your manifests
+# - Reusability: Share and reuse configurations
+# - Versioning: Track chart versions
+# - Dependencies: Manage chart dependencies
+# - Rollbacks: Easy rollback to previous releases
+#
+# Chart Structure:
+# - Chart.yaml: Chart metadata
+# - values.yaml: Default configuration values
+# - templates/: Kubernetes manifest templates
+#
+
+apiVersion: v2
+name: user-service
+description: A Helm chart for the User Service microservice with JWT authentication
+type: application
+
+# Chart version (update on changes to the chart)
+version: 1.0.0
+
+# Application version (version of your microservice)
+appVersion: "1.0.0"
+
+# Minimum Kubernetes version required
+kubeVersion: ">=1.19.0-0"
+
+# Keywords for chart discovery
+keywords:
+  - microservice
+  - api
+  - jwt
+  - authentication
+  - user-management
+
+# Maintainer information
+maintainers:
+  - name: DevOps Team
+    email: devops@example.com
+
+# Chart home page
+home: https://github.com/your-org/api-platform-using-kong
+
+# Sources
+sources:
+  - https://github.com/your-org/api-platform-using-kong
+
+# Annotations
+annotations:
+  category: Backend
+  license: MIT
+

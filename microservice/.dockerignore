@@ -1,0 +1,42 @@
+# Docker ignore file
+# Prevents unnecessary files from being copied into the container
+
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.env
+.venv
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Test files
+tests/
+*.test.py
+.pytest_cache/
+.coverage
+
+# Documentation
+*.md
+docs/
+
+# Local database (will be created at runtime)
+*.db
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.docker/
+

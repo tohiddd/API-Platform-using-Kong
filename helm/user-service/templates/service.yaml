@@ -1,0 +1,28 @@
+{{/*
+=============================================================================
+User Service - Kubernetes Service
+=============================================================================
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "user-service.fullname" . }}
+  labels:
+    {{- include "user-service.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+      {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePort }}
+      nodePort: {{ .Values.service.nodePort }}
+      {{- end }}
+  selector:
+    {{- include "user-service.selectorLabels" . | nindent 4 }}
+

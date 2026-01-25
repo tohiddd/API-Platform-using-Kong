@@ -1,0 +1,346 @@
+# =============================================================================
+# Kong Declarative Configuration (DB-less mode)
+# =============================================================================
+#
+# Key Concept: Kong API Gateway
+# -----------------------------
+# Kong is a cloud-native API gateway that sits between clients and your
+# upstream services. It handles:
+# - Authentication (JWT, OAuth, API Keys)
+# - Rate Limiting
+# - Request/Response transformation
+# - Load balancing
+# - Logging and monitoring
+#
+# Key Concept: Declarative Configuration (DB-less mode)
+# ------------------------------------------------------
+# Kong can run without a database by loading configuration from a YAML file.
+# Benefits:
+# - Simpler deployment (no PostgreSQL/Cassandra)
+# - Configuration as code (version controlled)
+# - Immutable infrastructure pattern
+# - Faster startup time
+#
+# Structure:
+# - _format_version: Configuration format version
+# - services: Upstream services to proxy to
+# - routes: URL patterns that map to services
+# - plugins: Functionality like auth, rate limiting, etc.
+# - consumers: API consumers (for authentication)
+#
+
+_format_version: "3.0"
+_transform: true
+
+# =============================================================================
+# Services
+# =============================================================================
+# Services represent your upstream APIs/microservices.
+# Kong proxies requests to these services based on route matching.
+
+services:
+  # User Service - Main backend microservice
+  - name: user-service
+    # URL of the upstream service (Kubernetes service DNS)
+    url: http://user-service.api-platform.svc.cluster.local:80
+    # Timeouts (in milliseconds)
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    # Retry configuration
+    retries: 5
+    # Health checks configuration
+    # Kong will check if the upstream is healthy
+    tags:
+      - user-service
+      - backend
+
+# =============================================================================
+# Routes
+# =============================================================================
+# Routes define how requests are matched and sent to services.
+# Each route is associated with a service.
+
+routes:
+  # ---------------------------------------------
+  # PUBLIC Routes (Authentication Bypass)
+  # ---------------------------------------------
+  # These routes do NOT require JWT authentication
+  
+  # Health Check Route
+  - name: health-route
+    service: user-service
+    paths:
+      - /health
+      - /api/health
+    methods:
+      - GET
+    strip_path: false
+    preserve_host: true
+    tags:
+      - public
+      - health
+
+  # Token Verification Route (Public)
+  - name: verify-route
+    service: user-service
+    paths:
+      - /verify
+      - /api/verify
+    methods:
+      - GET
+    strip_path: false
+    preserve_host: true
+    tags:
+      - public
+      - auth
+
+  # Login Route (Public - for obtaining JWT)
+  - name: login-route
+    service: user-service
+    paths:
+      - /login
+      - /api/login
+    methods:
+      - POST
+    strip_path: false
+    preserve_host: true
+    tags:
+      - public
+      - auth
+
+  # Root Route (Public)
+  - name: root-route
+    service: user-service
+    paths:
+      - /
+    methods:
+      - GET
+    strip_path: false
+    preserve_host: true
+    tags:
+      - public
+
+  # ---------------------------------------------
+  # PROTECTED Routes (JWT Required)
+  # ---------------------------------------------
+  # These routes REQUIRE JWT authentication
+  
+  # Users API Route (Protected)
+  - name: users-route
+    service: user-service
+    paths:
+      - /users
+      - /api/users
+    methods:
+      - GET
+    strip_path: false
+    preserve_host: true
+    tags:
+      - protected
+      - users
+
+# =============================================================================
+# Consumers
+# =============================================================================
+# Consumers represent users or applications that consume your APIs.
+# They are used for authentication and rate limiting.
+#
+# Key Concept: JWT Consumer
+# -------------------------
+# For JWT authentication, Kong validates tokens using the consumer's
+# JWT credentials (secret or public key).
+
+consumers:
+  # Main API Consumer
+  - username: api-user
+    custom_id: api-user-001
+    tags:
+      - internal
+      - jwt-enabled
+
+# =============================================================================
+# Plugins
+# =============================================================================
+# Plugins add functionality to Kong. They can be applied:
+# - Globally (all routes/services)
+# - Per service
+# - Per route
+# - Per consumer
+#
+
+plugins:
+  # -----------------------------------------
+  # Global Plugins (Apply to all routes)
+  # -----------------------------------------
+  
+  # Request ID Plugin - Adds unique ID to each request
+  # Useful for tracing and debugging
+  - name: correlation-id
+    config:
+      header_name: X-Request-ID
+      generator: uuid
+      echo_downstream: true
+    tags:
+      - global
+      - tracing
+
+  # Request Termination for blocked paths (security)
+  # Block access to sensitive paths
+  - name: request-termination
+    route: null
+    service: null
+    config:
+      status_code: 403
+      message: "Access Denied"
+    enabled: false  # Enable when needed
+    tags:
+      - security
+
+  # -----------------------------------------
+  # Rate Limiting Plugin
+  # -----------------------------------------
+  # Key Concept: Rate Limiting
+  # --------------------------
+  # Rate limiting protects your API from abuse by limiting the number
+  # of requests a client can make in a given time period.
+  #
+  # This configuration: 10 requests per minute per IP
+  
+  # Global Rate Limiting (applies to all routes)
+  - name: rate-limiting
+    config:
+      # Limit configuration
+      minute: 10              # 10 requests per minute
+      # Policy: local (in-memory) or redis (distributed)
+      policy: local
+      # How to identify the client
+      limit_by: ip            # Rate limit by client IP
+      # What to do when limit is exceeded
+      fault_tolerant: true    # Continue if rate limiter fails
+      # Headers to add to response
+      hide_client_headers: false
+      # Error configuration
+      error_code: 429
+      error_message: "Rate limit exceeded. Please try again later."
+    tags:
+      - rate-limiting
+      - global
+
+  # -----------------------------------------
+  # IP Restriction Plugin (Whitelisting)
+  # -----------------------------------------
+  # Key Concept: IP Whitelisting
+  # ----------------------------
+  # Restrict access to your API to specific IP addresses or CIDR ranges.
+  # Only whitelisted IPs can access the API.
+  #
+  # Common use cases:
+  # - Internal services only
+  # - Known partner IPs
+  # - VPN/office networks
+  
+  # Global IP Restriction
+  - name: ip-restriction
+    config:
+      # Allowed IP addresses and CIDR ranges
+      allow:
+        - 127.0.0.1           # Localhost
+        - 10.0.0.0/8          # Private network (Kubernetes pods)
+        - 172.16.0.0/12       # Private network (Docker)
+        - 192.168.0.0/16      # Private network (Local)
+        # Add your organization's public IPs here
+        # - 203.0.113.0/24    # Example: Office network
+      # Deny list (optional, takes precedence over allow)
+      # deny:
+      #   - 1.2.3.4
+      # Error configuration
+      status: 403
+      message: "Your IP address is not allowed"
+    tags:
+      - security
+      - ip-restriction
+
+  # -----------------------------------------
+  # JWT Authentication Plugin (Protected Routes Only)
+  # -----------------------------------------
+  # Key Concept: JWT Plugin
+  # -----------------------
+  # Kong's JWT plugin validates JSON Web Tokens.
+  # It checks:
+  # 1. Token signature (using configured secret)
+  # 2. Token expiration
+  # 3. Required claims
+  #
+  # Only applied to the protected /users route
+  
+  - name: jwt
+    route: users-route
+    config:
+      # Where to look for the JWT
+      header_names:
+        - Authorization
+      # URI argument name (alternative to header)
+      uri_param_names:
+        - jwt
+      # Claims to validate
+      claims_to_verify:
+        - exp                 # Expiration time
+      # Algorithm whitelist
+      key_claim_name: iss
+      secret_is_base64: false
+      # Run this plugin even in anonymous mode
+      run_on_preflight: true
+    tags:
+      - authentication
+      - jwt
+      - protected
+
+  # -----------------------------------------
+  # Response Transformer Plugin
+  # -----------------------------------------
+  # Add custom headers to responses
+  
+  - name: response-transformer
+    config:
+      add:
+        headers:
+          - "X-Powered-By:Kong-Gateway"
+          - "X-API-Version:1.0.0"
+    tags:
+      - transformation
+
+  # -----------------------------------------
+  # Request Transformer Plugin
+  # -----------------------------------------
+  # Add custom headers to requests sent to upstream
+  
+  - name: request-transformer
+    config:
+      add:
+        headers:
+          - "X-Forwarded-By:Kong"
+    tags:
+      - transformation
+
+# =============================================================================
+# JWT Credentials for Consumers
+# =============================================================================
+# This section defines JWT credentials for consumers.
+# The secret must match what your microservice uses to sign tokens.
+
+jwt_secrets:
+  - consumer: api-user
+    # Key identifier (matches 'iss' claim in JWT)
+    key: user-service
+    # Algorithm used for signing
+    algorithm: HS256
+    # The secret key (MUST match microservice's JWT_SECRET_KEY)
+    # In production, use environment variables or external secrets
+    secret: "your-super-secret-jwt-key-change-in-production"
+    # Optional RSA public key (for RS256 algorithm)
+    # rsa_public_key: |
+    #   -----BEGIN PUBLIC KEY-----
+    #   ...
+    #   -----END PUBLIC KEY-----
+

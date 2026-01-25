@@ -1,0 +1,37 @@
+# =============================================================================
+# Helm Chart: Kong API Gateway Configuration
+# =============================================================================
+#
+# This chart deploys Kong configuration resources, including:
+# - Custom plugin configuration
+# - JWT credentials
+# - Route and service definitions
+#
+# Note: This chart is designed to work alongside the official Kong Helm chart
+# (https://github.com/Kong/charts) or a Kong deployment.
+#
+
+apiVersion: v2
+name: kong-config
+description: Kong API Gateway configuration for the API Platform
+type: application
+version: 1.0.0
+appVersion: "3.4.0"
+
+# Kong Gateway version compatibility
+kubeVersion: ">=1.19.0-0"
+
+keywords:
+  - kong
+  - api-gateway
+  - configuration
+  - jwt
+  - rate-limiting
+
+maintainers:
+  - name: DevOps Team
+    email: devops@example.com
+
+annotations:
+  category: API Gateway
+

@@ -1,0 +1,217 @@
+# =============================================================================
+# Helm Values: User Service
+# =============================================================================
+#
+# Key Concept: values.yaml
+# -------------------------
+# This file contains default configuration values for the chart.
+# Users can override these values during installation:
+#   helm install my-release ./user-service -f custom-values.yaml
+#   helm install my-release ./user-service --set replicaCount=3
+#
+# Best Practices:
+# - Provide sensible defaults
+# - Document all values
+# - Use descriptive names
+# - Group related values
+#
+
+# -----------------------------------------------------------------------------
+# Global Settings
+# -----------------------------------------------------------------------------
+global:
+  # Image registry (can be overridden at image level)
+  imageRegistry: ""
+  # Image pull secrets for private registries
+  imagePullSecrets: []
+
+# -----------------------------------------------------------------------------
+# Replica Count
+# -----------------------------------------------------------------------------
+# Number of pod replicas to run
+replicaCount: 2
+
+# -----------------------------------------------------------------------------
+# Image Configuration
+# -----------------------------------------------------------------------------
+image:
+  # Container registry
+  repository: user-service
+  # Image pull policy: Always, IfNotPresent, Never
+  pullPolicy: IfNotPresent
+  # Image tag (overrides appVersion in Chart.yaml)
+  tag: ""
+
+# Image pull secrets (for private registries)
+imagePullSecrets: []
+
+# Override chart name
+nameOverride: ""
+fullnameOverride: ""
+
+# -----------------------------------------------------------------------------
+# Service Account
+# -----------------------------------------------------------------------------
+serviceAccount:
+  # Create a new service account
+  create: true
+  # Annotations for the service account
+  annotations: {}
+  # Name of the service account (generated if not specified)
+  name: ""
+
+# -----------------------------------------------------------------------------
+# Pod Configuration
+# -----------------------------------------------------------------------------
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "5000"
+  prometheus.io/path: "/health"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+
+# -----------------------------------------------------------------------------
+# Service Configuration
+# -----------------------------------------------------------------------------
+service:
+  # Service type: ClusterIP, NodePort, LoadBalancer
+  type: ClusterIP
+  # Service port
+  port: 80
+  # Target port (container port)
+  targetPort: 5000
+  # Node port (only for NodePort type)
+  nodePort: ""
+  # Annotations for the service
+  annotations: {}
+
+# -----------------------------------------------------------------------------
+# Ingress Configuration
+# -----------------------------------------------------------------------------
+# Note: When using Kong, you typically don't need Kubernetes Ingress
+# Kong handles external traffic routing
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: user-service.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# -----------------------------------------------------------------------------
+# Resource Limits
+# -----------------------------------------------------------------------------
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# -----------------------------------------------------------------------------
+# Autoscaling Configuration
+# -----------------------------------------------------------------------------
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# -----------------------------------------------------------------------------
+# Node Selection
+# -----------------------------------------------------------------------------
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# -----------------------------------------------------------------------------
+# Application Configuration
+# -----------------------------------------------------------------------------
+config:
+  # Flask configuration
+  flask:
+    host: "0.0.0.0"
+    port: 5000
+    debug: false
+  
+  # JWT configuration
+  jwt:
+    expirationHours: 24
+    # Secret is stored in Kubernetes Secret, not here
+  
+  # Database configuration
+  database:
+    path: /app/data/users.db
+
+# -----------------------------------------------------------------------------
+# Secrets Configuration
+# -----------------------------------------------------------------------------
+secrets:
+  # JWT secret key - CHANGE IN PRODUCTION!
+  # This value is stored in a Kubernetes Secret
+  jwtSecretKey: "your-super-secret-jwt-key-change-in-production"
+
+# -----------------------------------------------------------------------------
+# Persistence Configuration
+# -----------------------------------------------------------------------------
+persistence:
+  # Enable persistent storage for SQLite database
+  enabled: true
+  # Storage class (leave empty for default)
+  storageClassName: ""
+  # Access mode: ReadWriteOnce, ReadWriteMany
+  accessMode: ReadWriteOnce
+  # Storage size
+  size: 1Gi
+  # Annotations
+  annotations: {}
+
+# -----------------------------------------------------------------------------
+# Health Checks
+# -----------------------------------------------------------------------------
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 15
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# -----------------------------------------------------------------------------
+# Extra Environment Variables
+# -----------------------------------------------------------------------------
+extraEnv: []
+  # - name: EXTRA_VAR
+  #   value: "extra-value"
+
+# -----------------------------------------------------------------------------
+# Extra Volumes
+# -----------------------------------------------------------------------------
+extraVolumes: []
+extraVolumeMounts: []
+

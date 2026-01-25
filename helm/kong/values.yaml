@@ -1,0 +1,257 @@
+# =============================================================================
+# Kong Configuration Values
+# =============================================================================
+#
+# This values file configures Kong Gateway for the API Platform.
+# It includes settings for:
+# - Kong deployment
+# - JWT authentication
+# - Rate limiting
+# - IP whitelisting
+# - Custom Lua plugins
+#
+
+# -----------------------------------------------------------------------------
+# Kong Deployment Settings
+# -----------------------------------------------------------------------------
+kong:
+  # Kong image configuration
+  image:
+    repository: kong
+    tag: "3.4"
+    pullPolicy: IfNotPresent
+  
+  # Replica count
+  replicaCount: 2
+  
+  # Database mode: postgres, cassandra, off (DB-less)
+  # We use DB-less mode for declarative configuration
+  database: "off"
+  
+  # Environment variables for Kong
+  env:
+    # DB-less mode configuration
+    database: "off"
+    # Path to declarative config
+    declarative_config: /kong-config/kong.yaml
+    # Enable custom plugins
+    plugins: bundled,custom-request-handler
+    # Lua package path for custom plugins
+    lua_package_path: /kong-plugins/?.lua;;
+    # Logging
+    proxy_access_log: /dev/stdout
+    admin_access_log: /dev/stdout
+    proxy_error_log: /dev/stderr
+    admin_error_log: /dev/stderr
+  
+  # Proxy service configuration
+  proxy:
+    enabled: true
+    type: LoadBalancer
+    http:
+      enabled: true
+      containerPort: 8000
+      servicePort: 80
+    tls:
+      enabled: true
+      containerPort: 8443
+      servicePort: 443
+  
+  # Admin API configuration
+  admin:
+    enabled: true
+    type: ClusterIP
+    http:
+      enabled: true
+      containerPort: 8001
+      servicePort: 8001
+    tls:
+      enabled: false
+  
+  # Resource limits
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+    requests:
+      cpu: 200m
+      memory: 256Mi
+
+# -----------------------------------------------------------------------------
+# Upstream Services Configuration
+# -----------------------------------------------------------------------------
+services:
+  userService:
+    name: user-service
+    # Kubernetes service URL
+    url: http://user-service.api-platform.svc.cluster.local:80
+    protocol: http
+    port: 80
+    connectTimeout: 60000
+    writeTimeout: 60000
+    readTimeout: 60000
+    retries: 5
+
+# -----------------------------------------------------------------------------
+# Routes Configuration
+# -----------------------------------------------------------------------------
+routes:
+  # Public routes (no authentication)
+  public:
+    - name: health-route
+      paths:
+        - /health
+        - /api/health
+      methods:
+        - GET
+      stripPath: false
+    
+    - name: verify-route
+      paths:
+        - /verify
+        - /api/verify
+      methods:
+        - GET
+      stripPath: false
+    
+    - name: login-route
+      paths:
+        - /login
+        - /api/login
+      methods:
+        - POST
+      stripPath: false
+    
+    - name: root-route
+      paths:
+        - /
+      methods:
+        - GET
+      stripPath: false
+  
+  # Protected routes (JWT authentication required)
+  protected:
+    - name: users-route
+      paths:
+        - /users
+        - /api/users
+      methods:
+        - GET
+      stripPath: false
+
+# -----------------------------------------------------------------------------
+# JWT Configuration
+# -----------------------------------------------------------------------------
+jwt:
+  # Enable JWT authentication
+  enabled: true
+  # JWT plugin configuration
+  config:
+    headerNames:
+      - Authorization
+    uriParamNames:
+      - jwt
+    claimsToVerify:
+      - exp
+    keyClaimName: iss
+    secretIsBase64: false
+  
+  # Consumer configuration
+  consumer:
+    username: api-user
+    customId: api-user-001
+  
+  # JWT credentials
+  # IMPORTANT: Change in production!
+  credentials:
+    key: user-service
+    algorithm: HS256
+    # This must match the microservice's JWT_SECRET_KEY
+    secret: "your-super-secret-jwt-key-change-in-production"
+
+# -----------------------------------------------------------------------------
+# Rate Limiting Configuration
+# -----------------------------------------------------------------------------
+rateLimiting:
+  enabled: true
+  config:
+    # 10 requests per minute per IP
+    minute: 10
+    # Rate limiting policy: local (in-memory) or redis (distributed)
+    policy: local
+    # Limit by IP address
+    limitBy: ip
+    # Continue if rate limiter fails
+    faultTolerant: true
+    # Show rate limit headers in response
+    hideClientHeaders: false
+    # Error configuration
+    errorCode: 429
+    errorMessage: "Rate limit exceeded. Please try again later."
+
+# -----------------------------------------------------------------------------
+# IP Restriction (Whitelisting) Configuration
+# -----------------------------------------------------------------------------
+ipRestriction:
+  enabled: true
+  config:
+    # Allowed IP ranges (CIDR notation)
+    allow:
+      - 127.0.0.1         # Localhost
+      - 10.0.0.0/8        # Kubernetes pods
+      - 172.16.0.0/12     # Docker networks
+      - 192.168.0.0/16    # Local networks
+      # Add your organization's IPs here
+      # - 203.0.113.0/24  # Example: Office network
+    # HTTP status for denied requests
+    status: 403
+    message: "Your IP address is not allowed"
+
+# -----------------------------------------------------------------------------
+# Custom Lua Plugin Configuration
+# -----------------------------------------------------------------------------
+customPlugin:
+  enabled: true
+  name: custom-request-handler
+  config:
+    enableLogging: true
+    logFullJson: false
+    addSecurityHeaders: true
+    customHeaderName: X-Custom-Plugin
+    customHeaderValue: enabled
+
+# -----------------------------------------------------------------------------
+# CORS Configuration
+# -----------------------------------------------------------------------------
+cors:
+  enabled: true
+  config:
+    origins:
+      - "*"
+    methods:
+      - GET
+      - POST
+      - PUT
+      - DELETE
+      - OPTIONS
+    headers:
+      - Accept
+      - Authorization
+      - Content-Type
+    exposedHeaders:
+      - X-Request-ID
+      - X-Response-Time
+    credentials: true
+    maxAge: 3600
+
+# -----------------------------------------------------------------------------
+# Additional Security Headers
+# -----------------------------------------------------------------------------
+responseTransformer:
+  enabled: true
+  config:
+    add:
+      headers:
+        - "X-Powered-By:Kong-Gateway"
+        - "X-API-Version:1.0.0"
+

@@ -1,0 +1,146 @@
+{{/*
+=============================================================================
+Kong Declarative Configuration ConfigMap
+=============================================================================
+This ConfigMap contains the Kong declarative configuration (kong.yaml)
+that defines services, routes, plugins, and consumers.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kong-declarative-config
+  labels:
+    app: kong
+    component: config
+data:
+  kong.yaml: |
+    _format_version: "3.0"
+    _transform: true
+
+    # Services
+    services:
+      - name: {{ .Values.services.userService.name }}
+        url: {{ .Values.services.userService.url }}
+        connect_timeout: {{ .Values.services.userService.connectTimeout }}
+        write_timeout: {{ .Values.services.userService.writeTimeout }}
+        read_timeout: {{ .Values.services.userService.readTimeout }}
+        retries: {{ .Values.services.userService.retries }}
+
+    # Routes
+    routes:
+      # Public routes
+      {{- range .Values.routes.public }}
+      - name: {{ .name }}
+        service: {{ $.Values.services.userService.name }}
+        paths:
+          {{- range .paths }}
+          - {{ . }}
+          {{- end }}
+        methods:
+          {{- range .methods }}
+          - {{ . }}
+          {{- end }}
+        strip_path: {{ .stripPath }}
+        preserve_host: true
+        tags:
+          - public
+      {{- end }}
+
+      # Protected routes
+      {{- range .Values.routes.protected }}
+      - name: {{ .name }}
+        service: {{ $.Values.services.userService.name }}
+        paths:
+          {{- range .paths }}
+          - {{ . }}
+          {{- end }}
+        methods:
+          {{- range .methods }}
+          - {{ . }}
+          {{- end }}
+        strip_path: {{ .stripPath }}
+        preserve_host: true
+        tags:
+          - protected
+      {{- end }}
+
+    # Consumers
+    consumers:
+      - username: {{ .Values.jwt.consumer.username }}
+        custom_id: {{ .Values.jwt.consumer.customId }}
+
+    # Plugins
+    plugins:
+      # Global Rate Limiting
+      {{- if .Values.rateLimiting.enabled }}
+      - name: rate-limiting
+        config:
+          minute: {{ .Values.rateLimiting.config.minute }}
+          policy: {{ .Values.rateLimiting.config.policy }}
+          limit_by: {{ .Values.rateLimiting.config.limitBy }}
+          fault_tolerant: {{ .Values.rateLimiting.config.faultTolerant }}
+          hide_client_headers: {{ .Values.rateLimiting.config.hideClientHeaders }}
+          error_code: {{ .Values.rateLimiting.config.errorCode }}
+          error_message: {{ .Values.rateLimiting.config.errorMessage | quote }}
+      {{- end }}
+
+      # Global IP Restriction
+      {{- if .Values.ipRestriction.enabled }}
+      - name: ip-restriction
+        config:
+          allow:
+            {{- range .Values.ipRestriction.config.allow }}
+            - {{ . }}
+            {{- end }}
+          status: {{ .Values.ipRestriction.config.status }}
+          message: {{ .Values.ipRestriction.config.message | quote }}
+      {{- end }}
+
+      # JWT Authentication (only for protected routes)
+      {{- if .Values.jwt.enabled }}
+      {{- range .Values.routes.protected }}
+      - name: jwt
+        route: {{ .name }}
+        config:
+          header_names:
+            {{- range $.Values.jwt.config.headerNames }}
+            - {{ . }}
+            {{- end }}
+          uri_param_names:
+            {{- range $.Values.jwt.config.uriParamNames }}
+            - {{ . }}
+            {{- end }}
+          claims_to_verify:
+            {{- range $.Values.jwt.config.claimsToVerify }}
+            - {{ . }}
+            {{- end }}
+          key_claim_name: {{ $.Values.jwt.config.keyClaimName }}
+          secret_is_base64: {{ $.Values.jwt.config.secretIsBase64 }}
+      {{- end }}
+      {{- end }}
+
+      # Response Transformer
+      {{- if .Values.responseTransformer.enabled }}
+      - name: response-transformer
+        config:
+          add:
+            headers:
+              {{- range .Values.responseTransformer.config.add.headers }}
+              - {{ . | quote }}
+              {{- end }}
+      {{- end }}
+
+      # Correlation ID
+      - name: correlation-id
+        config:
+          header_name: X-Request-ID
+          generator: uuid
+          echo_downstream: true
+
+    # JWT Secrets
+    jwt_secrets:
+      - consumer: {{ .Values.jwt.consumer.username }}
+        key: {{ .Values.jwt.credentials.key }}
+        algorithm: {{ .Values.jwt.credentials.algorithm }}
+        secret: {{ .Values.jwt.credentials.secret | quote }}
+

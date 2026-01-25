@@ -1,0 +1,25 @@
+# =============================================================================
+# Kubernetes Namespace Configuration
+# =============================================================================
+#
+# Key Concept: Namespaces
+# -----------------------
+# Namespaces provide a way to divide cluster resources between multiple users
+# or projects. They are like virtual clusters within a physical cluster.
+#
+# Benefits:
+# - Resource isolation between environments/teams
+# - Easier RBAC (Role-Based Access Control) management
+# - Resource quotas per namespace
+# - Logical grouping of related resources
+#
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: api-platform
+  labels:
+    app.kubernetes.io/name: api-platform
+    app.kubernetes.io/description: "Secure API Platform with Kong Gateway"
+    environment: development
+

@@ -1,0 +1,19 @@
+# User Service Dependencies
+# ==========================
+
+# Flask - Lightweight WSGI web framework
+# Used for building the REST API
+Flask==3.0.0
+
+# PyJWT - JSON Web Token implementation
+# Used for JWT token generation and validation
+PyJWT==2.8.0
+
+# bcrypt - Password hashing library
+# Industry standard for secure password storage
+bcrypt==4.1.2
+
+# Gunicorn - Production-ready WSGI server
+# Used instead of Flask's development server in production
+gunicorn==21.2.0
+

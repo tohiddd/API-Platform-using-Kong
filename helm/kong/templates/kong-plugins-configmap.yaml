@@ -1,0 +1,133 @@
+{{/*
+=============================================================================
+Kong Custom Lua Plugins ConfigMap
+=============================================================================
+This ConfigMap contains custom Lua plugins that extend Kong's functionality.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kong-custom-plugins
+  labels:
+    app: kong
+    component: plugins
+data:
+  # Custom Request Handler Plugin
+  custom-request-handler.lua: |
+    -- Custom Kong Lua Plugin: Request Handler
+    -- Features: Request ID injection, timing, structured logging, security headers
+
+    local kong = kong
+
+    local CustomPlugin = {
+      PRIORITY = 800,
+      VERSION = "1.0.0",
+    }
+
+    -- Generate unique request ID
+    local function generate_request_id()
+      return string.format(
+        "%s-%08x-%04x",
+        os.date("%Y%m%d%H%M%S"),
+        math.random(0, 0xFFFFFFFF),
+        math.random(0, 0xFFFF)
+      )
+    end
+
+    -- Get real client IP
+    local function get_real_client_ip()
+      local forwarded_for = kong.request.get_header("X-Forwarded-For")
+      if forwarded_for then
+        local first_ip = forwarded_for:match("^([^,]+)")
+        if first_ip then
+          return first_ip:gsub("%s+", "")
+        end
+      end
+      return kong.client.get_ip()
+    end
+
+    -- ACCESS phase
+    function CustomPlugin:access(conf)
+      local request_id = kong.request.get_header("X-Request-ID")
+      if not request_id or request_id == "" then
+        request_id = generate_request_id()
+      end
+
+      kong.ctx.plugin.request_id = request_id
+      kong.ctx.plugin.start_time = ngx.now()
+      kong.ctx.plugin.client_ip = get_real_client_ip()
+
+      kong.service.request.set_header("X-Request-ID", request_id)
+      kong.service.request.set_header("X-Real-IP", kong.ctx.plugin.client_ip)
+      kong.service.request.set_header("X-Gateway-Time", os.date("!%Y-%m-%dT%H:%M:%SZ"))
+
+      if conf and conf.custom_header_name and conf.custom_header_value then
+        kong.service.request.set_header(conf.custom_header_name, conf.custom_header_value)
+      end
+
+      if not conf or conf.enable_logging ~= false then
+        kong.log.info(string.format(
+          "[REQUEST] id=%s method=%s path=%s client_ip=%s",
+          request_id,
+          kong.request.get_method(),
+          kong.request.get_path(),
+          kong.ctx.plugin.client_ip
+        ))
+      end
+    end
+
+    -- HEADER_FILTER phase
+    function CustomPlugin:header_filter(conf)
+      local request_id = kong.ctx.plugin.request_id
+      local start_time = kong.ctx.plugin.start_time
+      local duration_ms = 0
+
+      if start_time then
+        duration_ms = math.floor((ngx.now() - start_time) * 1000)
+      end
+      kong.ctx.plugin.duration_ms = duration_ms
+
+      if request_id then
+        kong.response.set_header("X-Request-ID", request_id)
+      end
+      kong.response.set_header("X-Response-Time", tostring(duration_ms) .. "ms")
+      kong.response.set_header("X-Powered-By", "Kong-Custom-Plugin")
+
+      if not conf or conf.add_security_headers ~= false then
+        kong.response.set_header("X-Content-Type-Options", "nosniff")
+        kong.response.set_header("X-Frame-Options", "SAMEORIGIN")
+        kong.response.set_header("X-XSS-Protection", "1; mode=block")
+      end
+    end
+
+    -- LOG phase
+    function CustomPlugin:log(conf)
+      if conf and conf.enable_logging == false then
+        return
+      end
+
+      local request_id = kong.ctx.plugin.request_id or "unknown"
+      local status = kong.response.get_status()
+      local duration_ms = kong.ctx.plugin.duration_ms or 0
+
+      local log_message = string.format(
+        "[RESPONSE] id=%s status=%d duration=%dms method=%s path=%s client=%s",
+        request_id,
+        status,
+        duration_ms,
+        kong.request.get_method(),
+        kong.request.get_path(),
+        kong.ctx.plugin.client_ip or "unknown"
+      )
+
+      if status >= 500 then
+        kong.log.err(log_message)
+      elseif status >= 400 then
+        kong.log.warn(log_message)
+      else
+        kong.log.info(log_message)
+      end
+    end
+
+    return CustomPlugin
+

@@ -1,0 +1,161 @@
+# =============================================================================
+# Complete Kubernetes Deployment Configuration
+# =============================================================================
+#
+# This file contains all Kubernetes resources needed for the API Platform.
+# Apply with: kubectl apply -f deployment.yaml
+#
+# Resources included:
+# 1. Namespace
+# 2. User Service Deployment
+# 3. User Service Service
+# 4. Secrets
+# 5. ConfigMaps
+# 6. PersistentVolumeClaim (optional, for database persistence)
+#
+
+---
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: api-platform
+  labels:
+    app.kubernetes.io/name: api-platform
+
+---
+# JWT Secret for User Service
+apiVersion: v1
+kind: Secret
+metadata:
+  name: user-service-secrets
+  namespace: api-platform
+type: Opaque
+stringData:
+  jwt-secret: "your-super-secret-jwt-key-change-in-production"
+
+---
+# ConfigMap for application configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: user-service-config
+  namespace: api-platform
+data:
+  FLASK_HOST: "0.0.0.0"
+  FLASK_PORT: "5000"
+  FLASK_DEBUG: "false"
+  JWT_EXPIRATION_HOURS: "24"
+  DATABASE_PATH: "/app/data/users.db"
+
+---
+# PersistentVolumeClaim for SQLite database
+# This ensures data persists across pod restarts
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: user-service-data
+  namespace: api-platform
+spec:
+  accessModes:
+    - ReadWriteOnce  # Can be mounted read-write by a single node
+  resources:
+    requests:
+      storage: 1Gi
+  # storageClassName: standard  # Uncomment and set based on your cluster
+
+---
+# User Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: api-platform
+  labels:
+    app: user-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      
+      containers:
+        - name: user-service
+          image: user-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 5000
+          
+          env:
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: user-service-secrets
+                  key: jwt-secret
+          
+          envFrom:
+            - configMapRef:
+                name: user-service-config
+          
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+          
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+      
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: user-service-data
+
+---
+# User Service - ClusterIP Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+  namespace: api-platform
+  labels:
+    app: user-service
+spec:
+  type: ClusterIP
+  selector:
+    app: user-service
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+

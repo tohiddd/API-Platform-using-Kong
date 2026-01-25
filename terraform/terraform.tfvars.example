@@ -1,0 +1,52 @@
+# =============================================================================
+# Terraform Variables Example
+# =============================================================================
+#
+# Copy this file to terraform.tfvars and customize for your environment.
+# terraform.tfvars is automatically loaded by Terraform.
+#
+# IMPORTANT: Never commit terraform.tfvars with sensitive values to git!
+#
+
+# Kubernetes Configuration
+kubeconfig_path    = "~/.kube/config"
+kubeconfig_context = ""  # Leave empty to use current context
+namespace          = "api-platform"
+environment        = "development"
+
+# Resource Quotas
+quota_cpu_requests    = "4"
+quota_memory_requests = "4Gi"
+quota_cpu_limits      = "8"
+quota_memory_limits   = "8Gi"
+quota_pods            = "20"
+quota_services        = "10"
+
+# Kong Configuration
+kong_replica_count = 2
+kong_database_mode = "off"  # DB-less mode
+
+# User Service Configuration
+user_service_replica_count = 2
+jwt_expiration_hours       = 24
+
+# Security Configuration
+rate_limit_per_minute = 10
+
+# IP Whitelisting - Add your organization's IPs here
+allowed_ip_ranges = [
+  "127.0.0.1/32",     # Localhost
+  "10.0.0.0/8",       # Kubernetes internal
+  "172.16.0.0/12",    # Docker networks
+  "192.168.0.0/16",   # Local networks
+  # "203.0.113.0/24", # Example: Office network
+]
+
+# CrowdSec Configuration
+crowdsec_enabled = true
+crowdsec_collections = [
+  "crowdsecurity/nginx",
+  "crowdsecurity/http-cve",
+  "crowdsecurity/base-http-scenarios"
+]
+

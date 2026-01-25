@@ -1,0 +1,342 @@
+# =============================================================================
+# CrowdSec DDoS Protection Deployment
+# =============================================================================
+#
+# Key Concept: CrowdSec
+# ----------------------
+# CrowdSec is an open-source security automation tool that:
+# 1. Parses logs to detect threats
+# 2. Applies scenarios to identify attacks
+# 3. Makes decisions (ban, captcha, etc.)
+# 4. Shares threat intelligence with the community
+#
+# This deployment includes:
+# - CrowdSec agent/LAPI (detection engine)
+# - Kong bouncer configuration
+# - Detection scenarios for DDoS protection
+#
+
+---
+# Namespace (use existing api-platform namespace)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: api-platform
+  labels:
+    app.kubernetes.io/name: api-platform
+
+---
+# CrowdSec ConfigMap - Acquisition Configuration
+# Defines where CrowdSec reads logs from
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: crowdsec-acquis
+  namespace: api-platform
+data:
+  acquis.yaml: |
+    # Kong Access Logs
+    # CrowdSec will read Kong logs to detect attacks
+    ---
+    source: file
+    filenames:
+      - /var/log/kong/access.log
+    labels:
+      type: nginx
+    ---
+    # Alternative: Read from Kubernetes logs
+    source: docker
+    container_name:
+      - kong*
+    labels:
+      type: nginx
+
+---
+# CrowdSec ConfigMap - Local Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: crowdsec-config
+  namespace: api-platform
+data:
+  local_api_credentials.yaml: |
+    url: http://127.0.0.1:8080
+    login: localhost
+    password: ${LAPI_PASSWORD}
+  
+  profiles.yaml: |
+    # Profiles define what actions to take when scenarios are triggered
+    name: default_ip_remediation
+    filters:
+      - Alert.Remediation == true && Alert.GetScope() == "Ip"
+    decisions:
+      - type: ban
+        duration: 4h
+    on_success: break
+    ---
+    # Aggressive profile for DDoS
+    name: ddos_remediation
+    filters:
+      - Alert.Remediation == true && Alert.GetScenario() contains "ddos"
+    decisions:
+      - type: ban
+        duration: 24h
+    on_success: break
+
+---
+# CrowdSec Custom Scenarios ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: crowdsec-scenarios
+  namespace: api-platform
+data:
+  # Custom HTTP Flood Detection Scenario
+  http-flood.yaml: |
+    # HTTP Flood Detection
+    # Triggers when an IP makes too many requests in a short time
+    type: leaky
+    name: custom/http-flood
+    description: "Detect HTTP flood attacks"
+    filter: "evt.Meta.log_type == 'http_access-log'"
+    groupby: "evt.Meta.source_ip"
+    capacity: 50
+    leakspeed: "10s"
+    blackhole: 2m
+    labels:
+      type: ddos
+      service: kong
+      remediation: true
+  
+  # API Abuse Detection
+  api-abuse.yaml: |
+    type: leaky
+    name: custom/api-abuse
+    description: "Detect API abuse patterns"
+    filter: "evt.Meta.log_type == 'http_access-log' && evt.Meta.http_status in ['401', '403', '429']"
+    groupby: "evt.Meta.source_ip"
+    capacity: 20
+    leakspeed: "1m"
+    blackhole: 5m
+    labels:
+      type: abuse
+      service: api
+      remediation: true
+  
+  # Slow Loris Detection
+  slowloris.yaml: |
+    type: trigger
+    name: custom/slowloris
+    description: "Detect slow HTTP attacks"
+    filter: "evt.Meta.log_type == 'http_access-log' && evt.Parsed.request_time > '30'"
+    groupby: "evt.Meta.source_ip"
+    condition: count() > 5
+    labels:
+      type: ddos
+      service: kong
+      remediation: true
+
+---
+# CrowdSec Secret - API Keys
+apiVersion: v1
+kind: Secret
+metadata:
+  name: crowdsec-secrets
+  namespace: api-platform
+type: Opaque
+stringData:
+  # Local API password (change in production)
+  lapi_password: "crowdsec-lapi-password-change-me"
+  # Bouncer API key (for Kong bouncer)
+  bouncer_api_key: "crowdsec-bouncer-key-change-me"
+
+---
+# CrowdSec Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crowdsec
+  namespace: api-platform
+  labels:
+    app: crowdsec
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crowdsec
+  template:
+    metadata:
+      labels:
+        app: crowdsec
+    spec:
+      containers:
+        - name: crowdsec
+          image: crowdsecurity/crowdsec:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            # Disable the wizard on first run
+            - name: DISABLE_ONLINE_API
+              value: "false"
+            # Collections to install
+            - name: COLLECTIONS
+              value: "crowdsecurity/nginx crowdsecurity/http-cve crowdsecurity/base-http-scenarios"
+            # LAPI password
+            - name: LAPI_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: crowdsec-secrets
+                  key: lapi_password
+            # Bouncer API key to register
+            - name: BOUNCER_KEY_kong
+              valueFrom:
+                secretKeyRef:
+                  name: crowdsec-secrets
+                  key: bouncer_api_key
+          ports:
+            # Local API port
+            - name: lapi
+              containerPort: 8080
+              protocol: TCP
+            # Prometheus metrics
+            - name: metrics
+              containerPort: 6060
+              protocol: TCP
+          volumeMounts:
+            - name: acquis-config
+              mountPath: /etc/crowdsec/acquis.yaml
+              subPath: acquis.yaml
+            - name: scenarios
+              mountPath: /etc/crowdsec/scenarios/custom
+            - name: data
+              mountPath: /var/lib/crowdsec/data
+            - name: kong-logs
+              mountPath: /var/log/kong
+              readOnly: true
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: lapi
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: lapi
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      
+      volumes:
+        - name: acquis-config
+          configMap:
+            name: crowdsec-acquis
+        - name: scenarios
+          configMap:
+            name: crowdsec-scenarios
+        - name: data
+          emptyDir: {}
+        - name: kong-logs
+          # Share Kong logs with CrowdSec
+          # In production, use a shared volume or log shipping
+          emptyDir: {}
+
+---
+# CrowdSec Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: crowdsec-lapi
+  namespace: api-platform
+  labels:
+    app: crowdsec
+spec:
+  type: ClusterIP
+  ports:
+    - name: lapi
+      port: 8080
+      targetPort: lapi
+    - name: metrics
+      port: 6060
+      targetPort: metrics
+  selector:
+    app: crowdsec
+
+---
+# Kong CrowdSec Bouncer ConfigMap
+# This configures Kong to check CrowdSec decisions
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kong-crowdsec-bouncer
+  namespace: api-platform
+data:
+  # Kong plugin configuration for CrowdSec bouncer
+  # This is loaded into Kong as a custom plugin
+  crowdsec-bouncer.lua: |
+    -- Kong CrowdSec Bouncer Plugin
+    -- Checks CrowdSec LAPI for IP decisions before allowing requests
+    
+    local http = require "resty.http"
+    local cjson = require "cjson.safe"
+    local kong = kong
+    
+    local CrowdSecBouncer = {
+      PRIORITY = 900,  -- Run before JWT but after rate limiting
+      VERSION = "1.0.0",
+    }
+    
+    -- Check if IP is banned by CrowdSec
+    local function check_ip_decision(ip, api_url, api_key)
+      local httpc = http.new()
+      httpc:set_timeout(1000)  -- 1 second timeout
+      
+      local res, err = httpc:request_uri(api_url .. "/v1/decisions?ip=" .. ip, {
+        method = "GET",
+        headers = {
+          ["X-Api-Key"] = api_key,
+        },
+      })
+      
+      if not res then
+        kong.log.err("CrowdSec API error: ", err)
+        return false  -- Fail open
+      end
+      
+      if res.status == 200 then
+        local decisions = cjson.decode(res.body)
+        if decisions and #decisions > 0 then
+          -- IP has active decisions (banned)
+          return true, decisions[1].type
+        end
+      end
+      
+      return false
+    end
+    
+    function CrowdSecBouncer:access(conf)
+      local client_ip = kong.client.get_ip()
+      
+      -- Check with CrowdSec LAPI
+      local is_banned, decision_type = check_ip_decision(
+        client_ip,
+        conf.api_url or "http://crowdsec-lapi:8080",
+        conf.api_key
+      )
+      
+      if is_banned then
+        kong.log.warn("Blocked IP by CrowdSec: ", client_ip, " Decision: ", decision_type)
+        return kong.response.exit(403, {
+          error = "Access denied",
+          message = "Your IP has been blocked due to suspicious activity"
+        })
+      end
+    end
+    
+    return CrowdSecBouncer
+

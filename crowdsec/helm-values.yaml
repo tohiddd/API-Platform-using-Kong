@@ -1,0 +1,88 @@
+# =============================================================================
+# CrowdSec Helm Values
+# =============================================================================
+# These values can be used with the official CrowdSec Helm chart:
+# helm repo add crowdsec https://crowdsecurity.github.io/helm-charts
+# helm install crowdsec crowdsec/crowdsec -f helm-values.yaml -n api-platform
+#
+
+# Agent (Security Engine) Configuration
+agent:
+  # Enable the agent
+  enabled: true
+  
+  # Acquisition configuration
+  acquisition:
+    # Read Kong logs
+    - namespace: api-platform
+      podName: kong-*
+      program: nginx
+  
+  # Environment variables
+  env:
+    - name: COLLECTIONS
+      value: "crowdsecurity/nginx crowdsecurity/http-cve crowdsecurity/base-http-scenarios"
+  
+  # Resources
+  resources:
+    limits:
+      memory: 256Mi
+      cpu: 500m
+    requests:
+      memory: 128Mi
+      cpu: 100m
+
+# LAPI (Local API) Configuration
+lapi:
+  enabled: true
+  
+  # Persistence for decisions database
+  persistence:
+    enabled: true
+    size: 1Gi
+  
+  # Environment
+  env:
+    - name: DISABLE_ONLINE_API
+      value: "false"
+  
+  # Resources
+  resources:
+    limits:
+      memory: 256Mi
+      cpu: 500m
+    requests:
+      memory: 128Mi
+      cpu: 100m
+
+# Dashboard (optional - for visualization)
+dashboard:
+  enabled: false  # Enable if you want the web dashboard
+
+# Bouncers Configuration
+bouncers:
+  # Register Kong bouncer automatically
+  - name: kong-bouncer
+    key: ""  # Will be auto-generated
+
+# Metrics
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: false  # Enable if using Prometheus Operator
+
+# Security Context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+# Node Selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+

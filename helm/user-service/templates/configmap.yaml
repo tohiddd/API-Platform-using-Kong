@@ -1,0 +1,19 @@
+{{/*
+=============================================================================
+User Service - ConfigMap
+=============================================================================
+Stores non-sensitive configuration.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "user-service.configMapName" . }}
+  labels:
+    {{- include "user-service.labels" . | nindent 4 }}
+data:
+  FLASK_HOST: {{ .Values.config.flask.host | quote }}
+  FLASK_PORT: {{ .Values.config.flask.port | quote }}
+  FLASK_DEBUG: {{ .Values.config.flask.debug | quote }}
+  JWT_EXPIRATION_HOURS: {{ .Values.config.jwt.expirationHours | quote }}
+  DATABASE_PATH: {{ .Values.config.database.path | quote }}
+
