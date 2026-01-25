@@ -34,13 +34,9 @@ def create_app():
     # Load configuration
     app.config.from_object(Config)
     
-    # Register API blueprint with /api prefix
-    # All routes will be accessible at /api/...
-    # This is important for Kong routing
-    app.register_blueprint(api, url_prefix='/api')
-    
-    # Also register at root for convenience
-    # This allows both /health and /api/health to work
+    # Register API blueprint at root level
+    # Routes will be accessible at /health, /login, /users, etc.
+    # Kong will route to these endpoints
     app.register_blueprint(api)
     
     # Global error handlers
