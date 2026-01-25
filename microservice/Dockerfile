@@ -15,7 +15,7 @@
 #
 
 # Stage 1: Build stage
-FROM python:3.11-slim as builder
+FROM python:3.11-slim AS builder
 
 # Set working directory
 WORKDIR /app
@@ -65,8 +65,9 @@ WORKDIR /app
 # Copy installed packages from builder stage
 COPY --from=builder /root/.local /home/appuser/.local
 
-# Update PATH to include user-installed packages
-ENV PATH=/home/appuser/.local/bin:$PATH
+# Update PATH and PYTHONPATH to include user-installed packages
+ENV PATH=/home/appuser/.local/bin:$PATH \
+    PYTHONPATH=/home/appuser/.local/lib/python3.11/site-packages:$PYTHONPATH
 
 # Create data directory for SQLite database
 # This directory should be mounted as a volume for persistence

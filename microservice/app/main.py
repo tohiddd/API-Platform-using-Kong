@@ -68,6 +68,11 @@ def create_app():
 # Application instance
 app = create_app()
 
+# Initialize database when module is imported (for gunicorn)
+# This ensures the database is ready before handling requests
+print("Initializing database...")
+init_db()
+
 
 def main():
     """
