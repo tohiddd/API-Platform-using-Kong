@@ -299,6 +299,54 @@ else
 fi
 
 # =============================================================================
+# TEST 14: CrowdSec DDoS Protection
+# =============================================================================
+print_header "TEST 14: CrowdSec DDoS Protection Status"
+
+LAPI_POD=$(kubectl get pods -n api-platform -l app=crowdsec-lapi -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+
+if [ -n "$LAPI_POD" ]; then
+    echo "CrowdSec LAPI Pod: $LAPI_POD"
+    
+    # Check if pod is running
+    POD_STATUS=$(kubectl get pod $LAPI_POD -n api-platform -o jsonpath='{.status.phase}' 2>/dev/null)
+    echo "Pod Status: $POD_STATUS"
+    
+    if [ "$POD_STATUS" = "Running" ]; then
+        # Get version
+        VERSION=$(kubectl exec -n api-platform $LAPI_POD -- cscli version 2>/dev/null | head -1)
+        echo "CrowdSec Version: $VERSION"
+        
+        # Count scenarios
+        SCENARIO_COUNT=$(kubectl exec -n api-platform $LAPI_POD -- cscli scenarios list -o raw 2>/dev/null | wc -l)
+        echo "Detection Scenarios: $SCENARIO_COUNT installed"
+        
+        pass "CrowdSec DDoS protection is running"
+    else
+        fail "CrowdSec pod is not running (status: $POD_STATUS)"
+    fi
+else
+    warn "CrowdSec LAPI pod not found - DDoS protection may not be installed"
+fi
+
+# =============================================================================
+# TEST 15: IP Whitelisting Configuration
+# =============================================================================
+print_header "TEST 15: IP Whitelisting Configuration"
+
+# Check if IP restriction is configured in Kong
+IP_CONFIG=$(kubectl get configmap kong-declarative-config -n api-platform -o yaml 2>/dev/null | grep -c "ip-restriction")
+
+if [ "$IP_CONFIG" -gt 0 ]; then
+    echo "IP Restriction plugin: Configured"
+    echo "Allowed networks:"
+    kubectl get configmap kong-declarative-config -n api-platform -o yaml 2>/dev/null | grep -A10 "ip-restriction" | grep -E "^\s+- [0-9]" | head -5
+    pass "IP whitelisting is configured"
+else
+    fail "IP restriction plugin not found in Kong config"
+fi
+
+# =============================================================================
 # SUMMARY
 # =============================================================================
 echo ""

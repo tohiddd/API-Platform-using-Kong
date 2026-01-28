@@ -482,6 +482,160 @@ echo ""
 
 ---
 
+## Test Scenario 11: DDoS Protection (CrowdSec)
+
+**Purpose**: Verify CrowdSec DDoS protection is running and functional.
+
+### Why CrowdSec Was Chosen
+- **Open-source** (MIT License) - No vendor lock-in
+- **Self-managed** - Runs entirely in your Kubernetes cluster
+- **Behavioral analysis** - Detects attack patterns, not just rate limits
+- **Community-powered** - Shares threat intel with 70K+ users worldwide
+- **Kubernetes-native** - Easy deployment via Helm chart
+
+### 11.1 Check CrowdSec Status
+```bash
+# Check if CrowdSec LAPI is running
+kubectl get pods -n api-platform | grep crowdsec
+
+# Expected output:
+# crowdsec-lapi-xxxxx   1/1     Running   0          xxh
+```
+
+### 11.2 Check CrowdSec Version
+```bash
+# Get the LAPI pod name
+LAPI_POD=$(kubectl get pods -n api-platform -l app=crowdsec-lapi -o jsonpath='{.items[0].metadata.name}')
+
+# Check version
+kubectl exec -n api-platform $LAPI_POD -- cscli version
+```
+
+### 11.3 View Installed Detection Scenarios
+```bash
+kubectl exec -n api-platform $LAPI_POD -- cscli scenarios list
+```
+
+**Expected**: You should see HTTP-related scenarios like:
+- `crowdsecurity/http-generic-bf` (brute force)
+- `crowdsecurity/http-crawl-non_statics` (crawlers)
+- `crowdsecurity/http-probing` (scanning)
+
+### 11.4 View CrowdSec Metrics
+```bash
+kubectl exec -n api-platform $LAPI_POD -- cscli metrics
+```
+
+### 11.5 View Current Banned IPs
+```bash
+kubectl exec -n api-platform $LAPI_POD -- cscli decisions list
+```
+
+### 11.6 Test Manual IP Ban (Simulate Attack Detection)
+```bash
+# Ban a test IP for 5 minutes
+kubectl exec -n api-platform $LAPI_POD -- \
+  cscli decisions add --ip 203.0.113.100 --duration 5m --reason "test:manual-ban"
+
+# Verify the ban was added
+kubectl exec -n api-platform $LAPI_POD -- cscli decisions list
+
+# Remove the test ban
+kubectl exec -n api-platform $LAPI_POD -- \
+  cscli decisions delete --ip 203.0.113.100
+```
+
+### 11.7 Install Additional HTTP Scenarios (Optional)
+```bash
+# Install nginx/HTTP detection collection
+kubectl exec -n api-platform $LAPI_POD -- \
+  cscli collections install crowdsecurity/nginx
+
+# Verify installation
+kubectl exec -n api-platform $LAPI_POD -- cscli scenarios list | grep http
+```
+
+### CrowdSec Integration Architecture
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    KUBERNETES CLUSTER                           │
+│                                                                 │
+│  ┌──────────┐     ┌─────────────────┐     ┌──────────────────┐ │
+│  │  Client  │────▶│  Kong Gateway   │────▶│   User Service   │ │
+│  └──────────┘     │ (Rate Limiting) │     └──────────────────┘ │
+│                   └────────┬────────┘                           │
+│                            │ Logs                               │
+│                            ▼                                    │
+│                   ┌─────────────────┐                           │
+│                   │  CrowdSec LAPI  │  ← Decision Engine       │
+│                   │ (Threat Detect) │                           │
+│                   └─────────────────┘                           │
+│                                                                 │
+│  Protection Layers:                                             │
+│  • Layer 1: Kong Rate Limiting (10 req/min)                    │
+│  • Layer 2: CrowdSec Behavioral Analysis                       │
+│  • Layer 3: Community Threat Intelligence                      │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Test Scenario 12: IP Whitelisting
+
+**Purpose**: Verify only allowed IPs can access the API.
+
+### Current Whitelist Configuration
+```yaml
+allow:
+  - 127.0.0.1           # Localhost
+  - 10.0.0.0/8          # Kubernetes internal
+  - 172.16.0.0/12       # Docker networks
+  - 192.168.0.0/16      # Local networks
+```
+
+### 12.1 Test from Allowed IP (Should Work)
+```bash
+curl $KONG_URL/health
+```
+**Expected**: HTTP 200 with health response
+
+### 12.2 Test IP Blocking
+
+To test blocking, update `kong/kong.yaml` and comment out the allowed networks:
+
+```yaml
+allow:
+  # - 127.0.0.1         # BLOCKED
+  # - 10.0.0.0/8        # BLOCKED
+  - 172.16.0.0/12
+  - 192.168.0.0/16
+```
+
+Then apply and reload Kong:
+```bash
+# Update ConfigMap
+kubectl create configmap kong-declarative-config \
+  --from-file=kong.yaml=kong/kong.yaml \
+  -n api-platform --dry-run=client -o yaml | kubectl apply -f -
+
+# Restart Kong
+kubectl rollout restart deployment kong-kong -n api-platform
+
+# Test - should get HTTP 403
+curl $KONG_URL/health
+```
+
+**Expected when blocked**:
+```json
+{"message":"Your IP address is not allowed"}
+```
+HTTP Status: 403
+
+**Note**: Remember to restore the config after testing!
+
+---
+
 ## Kubernetes Debugging Commands
 
 ```bash
