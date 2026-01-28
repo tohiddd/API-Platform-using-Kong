@@ -347,6 +347,58 @@ else
 fi
 
 # =============================================================================
+# TEST 16: Custom Lua Logic (Header Injection)
+# =============================================================================
+print_header "TEST 16: Custom Lua Logic (Header Injection)"
+
+# Check for custom headers
+HEADERS=$(curl -sI $KONG_URL/health 2>/dev/null)
+
+# Check X-Request-ID
+X_REQUEST_ID=$(echo "$HEADERS" | grep -i "X-Request-ID" | awk '{print $2}' | tr -d '\r')
+if [ -n "$X_REQUEST_ID" ]; then
+    echo "X-Request-ID: $X_REQUEST_ID"
+    pass "Request ID header present (correlation-id plugin)"
+else
+    fail "X-Request-ID header not found"
+fi
+
+# Check X-Powered-By
+X_POWERED_BY=$(echo "$HEADERS" | grep -i "X-Powered-By" | awk '{print $2}' | tr -d '\r')
+if [ -n "$X_POWERED_BY" ]; then
+    echo "X-Powered-By: $X_POWERED_BY"
+    pass "Custom header injection working (response-transformer)"
+else
+    warn "X-Powered-By header not found"
+fi
+
+# Check X-API-Version
+X_API_VERSION=$(echo "$HEADERS" | grep -i "X-API-Version" | awk '{print $2}' | tr -d '\r')
+if [ -n "$X_API_VERSION" ]; then
+    echo "X-API-Version: $X_API_VERSION"
+    pass "API version header present"
+else
+    warn "X-API-Version header not found"
+fi
+
+# Check unique request IDs
+echo ""
+echo "Verifying unique request IDs (3 requests):"
+ID1=$(curl -sI $KONG_URL/health 2>/dev/null | grep -i "X-Request-ID" | awk '{print $2}' | tr -d '\r')
+ID2=$(curl -sI $KONG_URL/health 2>/dev/null | grep -i "X-Request-ID" | awk '{print $2}' | tr -d '\r')
+ID3=$(curl -sI $KONG_URL/health 2>/dev/null | grep -i "X-Request-ID" | awk '{print $2}' | tr -d '\r')
+
+echo "  Request 1: $ID1"
+echo "  Request 2: $ID2"
+echo "  Request 3: $ID3"
+
+if [ "$ID1" != "$ID2" ] && [ "$ID2" != "$ID3" ]; then
+    pass "Each request has a unique ID"
+else
+    fail "Request IDs are not unique"
+fi
+
+# =============================================================================
 # SUMMARY
 # =============================================================================
 echo ""

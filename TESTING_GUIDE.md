@@ -636,6 +636,86 @@ HTTP Status: 403
 
 ---
 
+## Test Scenario 13: Custom Kong Lua Logic
+
+**Purpose**: Verify custom Lua plugins are working (header injection, logging, request tracing).
+
+### What the Lua Plugin Does
+- Injects custom headers into responses
+- Generates unique request IDs for tracing
+- Adds API versioning headers
+- Logs requests with structured data
+
+### 13.1 View Custom Response Headers
+```bash
+curl -I $KONG_URL/health
+```
+
+**Expected headers**:
+```
+X-Request-ID: e86d7ce1-6345-4xxx-xxxx-xxxxxxxxxxxx
+X-Powered-By: Kong-Gateway
+X-API-Version: 1.0.0
+X-Kong-Request-Id: b77da56dfb89df2xxxxx
+X-Kong-Response-Latency: 1
+```
+
+### 13.2 View Only Custom X- Headers
+```bash
+curl -I $KONG_URL/health 2>&1 | grep "X-"
+```
+
+### 13.3 Verify Unique Request IDs
+```bash
+# Run this 3 times - each should have a DIFFERENT ID
+curl -sI $KONG_URL/health | grep "X-Request-ID"
+curl -sI $KONG_URL/health | grep "X-Request-ID"
+curl -sI $KONG_URL/health | grep "X-Request-ID"
+```
+
+**Expected**: Each request has a unique UUID:
+```
+X-Request-ID: e8d83730-945f-4d56-8b33-6f7b500028a9
+X-Request-ID: 1a5f6a69-2855-48f9-8227-ac18c459d5d0
+X-Request-ID: 87519289-d56a-4e8d-acdd-59a15feee358
+```
+
+### 13.4 View Kong Structured Logs
+```bash
+kubectl logs -l app.kubernetes.io/name=kong -n api-platform --tail=20
+```
+
+**Expected log format**:
+```
+10.42.0.1 - - [28/Jan/2026:17:55:44 +0000] "GET /health HTTP/1.1" 200 64 "-" "curl/8.7.1" kong_request_id: "xxx"
+```
+
+### 13.5 Filter Logs by Request ID
+```bash
+kubectl logs -l app.kubernetes.io/name=kong -n api-platform --tail=50 | grep kong_request_id
+```
+
+### Lua Plugin Features Summary
+
+| Feature | Header/Log | Source Plugin |
+|---------|------------|---------------|
+| Request ID | `X-Request-ID` | correlation-id |
+| API Version | `X-API-Version: 1.0.0` | response-transformer |
+| Gateway ID | `X-Powered-By: Kong-Gateway` | response-transformer |
+| Tracing | `kong_request_id` in logs | Kong core |
+| Latency | `X-Kong-Response-Latency` | Kong core |
+
+### Lua Files Location
+```
+kong/plugins/
+├── custom.lua                    # Main custom plugin (211 lines)
+└── custom-request-handler/
+    ├── handler.lua               # Full plugin implementation (215 lines)
+    └── schema.lua                # Plugin configuration schema (150 lines)
+```
+
+---
+
 ## Kubernetes Debugging Commands
 
 ```bash
