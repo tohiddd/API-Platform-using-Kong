@@ -399,6 +399,68 @@ else
 fi
 
 # =============================================================================
+# TEST 17: SQLite Database Verification
+# =============================================================================
+print_header "TEST 17: SQLite Database Verification"
+
+# Get user-service pod
+USER_POD=$(kubectl get pods -n api-platform 2>/dev/null | grep user-service | head -1 | awk '{print $1}')
+
+if [ -n "$USER_POD" ]; then
+    echo "User Service Pod: $USER_POD"
+    
+    # Check if database exists
+    DB_EXISTS=$(kubectl exec -n api-platform $USER_POD -- python3 -c "
+import os
+print('yes' if os.path.exists('/app/data/users.db') else 'no')
+" 2>/dev/null)
+    
+    if [ "$DB_EXISTS" = "yes" ]; then
+        echo "Database file: /app/data/users.db exists"
+        pass "SQLite database file exists"
+        
+        # Query user count
+        USER_COUNT=$(kubectl exec -n api-platform $USER_POD -- python3 -c "
+import sqlite3
+conn = sqlite3.connect('/app/data/users.db')
+cursor = conn.cursor()
+cursor.execute('SELECT COUNT(*) FROM users;')
+print(cursor.fetchone()[0])
+conn.close()
+" 2>/dev/null)
+        
+        echo "Users in database: $USER_COUNT"
+        if [ "$USER_COUNT" -ge 1 ]; then
+            pass "Users are stored in SQLite database"
+        else
+            fail "No users found in database"
+        fi
+        
+        # Check password hashing
+        HASH_CHECK=$(kubectl exec -n api-platform $USER_POD -- python3 -c "
+import sqlite3
+conn = sqlite3.connect('/app/data/users.db')
+cursor = conn.cursor()
+cursor.execute('SELECT password_hash FROM users LIMIT 1;')
+hash = cursor.fetchone()[0]
+print('bcrypt' if hash.startswith('\$2b\$') else 'unknown')
+conn.close()
+" 2>/dev/null)
+        
+        if [ "$HASH_CHECK" = "bcrypt" ]; then
+            echo "Password hashing: bcrypt"
+            pass "Passwords are securely hashed with bcrypt"
+        else
+            warn "Could not verify password hashing"
+        fi
+    else
+        fail "SQLite database file not found"
+    fi
+else
+    warn "User service pod not found - skipping database test"
+fi
+
+# =============================================================================
 # SUMMARY
 # =============================================================================
 echo ""

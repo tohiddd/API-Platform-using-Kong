@@ -716,6 +716,104 @@ kong/plugins/
 
 ---
 
+## Test Scenario 14: SQLite Database Verification
+
+**Purpose**: Verify that users are stored in a local SQLite database.
+
+### Database Requirements
+- SQLite (local, file-based database)
+- User records stored
+- Secure password hashes (bcrypt)
+- Auto-initialized at startup
+- No external or managed databases
+
+### 14.1 Verify Database File Exists in Pod
+```bash
+# Get user-service pod name
+USER_POD=$(kubectl get pods -n api-platform | grep user-service | head -1 | awk '{print $1}')
+
+# Check database file
+kubectl exec -n api-platform $USER_POD -- ls -la /app/data/
+```
+
+**Expected**: You should see `users.db` file
+
+### 14.2 Query Database Directly (Using Python)
+```bash
+kubectl exec -n api-platform $USER_POD -- python3 -c "
+import sqlite3
+conn = sqlite3.connect('/app/data/users.db')
+cursor = conn.cursor()
+
+# Show tables
+cursor.execute(\"SELECT name FROM sqlite_master WHERE type='table';\")
+print('Tables:', cursor.fetchall())
+
+# Show users
+cursor.execute('SELECT id, username, email FROM users;')
+print('Users:')
+for user in cursor.fetchall():
+    print(f'  ID: {user[0]}, Username: {user[1]}, Email: {user[2]}')
+
+conn.close()
+"
+```
+
+**Expected output**:
+```
+Tables: [('users',), ('sqlite_sequence',)]
+Users:
+  ID: 1, Username: admin, Email: admin@example.com
+  ID: 2, Username: user1, Email: user1@example.com
+  ID: 3, Username: user2, Email: user2@example.com
+```
+
+### 14.3 Verify Password Hashing (bcrypt)
+```bash
+kubectl exec -n api-platform $USER_POD -- python3 -c "
+import sqlite3
+conn = sqlite3.connect('/app/data/users.db')
+cursor = conn.cursor()
+cursor.execute('SELECT username, password_hash FROM users LIMIT 1;')
+user = cursor.fetchone()
+print(f'Username: {user[0]}')
+print(f'Password Hash: {user[1][:50]}...')
+print('Hash starts with \$2b\$ (bcrypt):', user[1].startswith('\$2b\$'))
+conn.close()
+"
+```
+
+**Expected**: Password hash should start with `$2b$` (bcrypt format)
+
+### 14.4 Verify via API
+```bash
+# Login and get token
+TOKEN=$(curl -s -X POST $KONG_URL/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123"}' | python3 -c "import sys, json; print(json.load(sys.stdin)['token'])")
+
+# Get users from database via API
+curl $KONG_URL/users -H "Authorization: Bearer $TOKEN"
+```
+
+### 14.5 Verify Auto-Initialization
+The database is automatically initialized when the container starts. Check the logs:
+```bash
+kubectl logs $USER_POD -n api-platform | grep -i "database\|init"
+```
+
+### Database Summary
+
+| Property | Value |
+|----------|-------|
+| Type | SQLite (file-based) |
+| Path | `/app/data/users.db` |
+| Tables | `users`, `sqlite_sequence` |
+| Password Hashing | bcrypt |
+| Auto-init | Yes (on startup) |
+
+---
+
 ## Kubernetes Debugging Commands
 
 ```bash
