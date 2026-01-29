@@ -865,27 +865,55 @@ CrowdSec is an open-source, crowd-powered security engine that:
                         └─────────────────┘
 ```
 
-### 15.1 Check CrowdSec Status
+### Complete Step-by-Step Test (Copy-Paste Ready)
+
+Run these commands one by one in your terminal:
+
+---
+
+#### Step 1: Find the CrowdSec Pod Name
 
 ```bash
-# Get LAPI pod name
-LAPI_POD=$(kubectl get pods -n api-platform -l app=crowdsec-lapi -o jsonpath='{.items[0].metadata.name}')
-echo "CrowdSec LAPI Pod: $LAPI_POD"
+kubectl get pods -n api-platform | grep crowdsec-lapi
+```
 
-# Check CrowdSec version
+**Expected Output**:
+```
+crowdsec-lapi-85cbd6b576-rh2t9   1/1     Running   0   2d22h
+```
+
+---
+
+#### Step 2: Set the Pod Name Variable
+
+```bash
+LAPI_POD=$(kubectl get pods -n api-platform | grep crowdsec-lapi | awk '{print $1}')
+echo "LAPI Pod: $LAPI_POD"
+```
+
+**Expected**: Shows your pod name like `crowdsec-lapi-85cbd6b576-rh2t9`
+
+---
+
+#### Step 3: Check CrowdSec Version
+
+```bash
 kubectl exec -n api-platform $LAPI_POD -- cscli version
 ```
 
 **Expected Output**:
 ```
-version: v1.x.x
+version: v1.7.4-db3efdbf
+Codename: alphaga
+BuildDate: 2025-12-09_10:38:40
 ...
 ```
 
-### 15.2 List Installed Detection Scenarios
+---
+
+#### Step 4: List Detection Scenarios (Attack Patterns)
 
 ```bash
-# See what attack patterns CrowdSec can detect
 kubectl exec -n api-platform $LAPI_POD -- cscli scenarios list
 ```
 
@@ -898,74 +926,91 @@ crowdsecurity/ssh-bf
 ...
 ```
 
-### 15.3 Simulate IP Ban (Manual Decision)
+---
 
-This demonstrates what happens when CrowdSec detects an attack:
+#### Step 5: Ban a Test IP (Simulates Attack Detection)
 
 ```bash
-# Ban a test IP for 5 minutes (simulating attack detection)
-kubectl exec -n api-platform $LAPI_POD -- cscli decisions add --ip 1.2.3.4 --duration 5m --reason "Manual test ban" --type ban
+kubectl exec -n api-platform $LAPI_POD -- cscli decisions add --ip 1.2.3.4 --duration 5m --reason "Test ban" --type ban
+```
 
-# Verify the decision was added
+**Expected Output**: `Decision successfully added`
+
+---
+
+#### Step 6: View Blocked IPs (Verify Ban)
+
+```bash
 kubectl exec -n api-platform $LAPI_POD -- cscli decisions list
 ```
 
 **Expected Output**:
 ```
-╭────────┬──────────┬───────────┬─────────────────────┬────────┬─────────┬────────────────────╮
-│   ID   │  Source  │  Scope    │       Value         │ Reason │ Action  │     Expiration     │
-├────────┼──────────┼───────────┼─────────────────────┼────────┼─────────┼────────────────────┤
-│  1     │  cscli   │  Ip       │  1.2.3.4            │ Manual │  ban    │  4m59s             │
-╰────────┴──────────┴───────────┴─────────────────────┴────────┴─────────┴────────────────────╯
+╭────────┬──────────┬───────────┬─────────────────────┬─────────────────┬─────────┬────────────────────╮
+│   ID   │  Source  │  Scope    │       Value         │     Reason      │ Action  │     Expiration     │
+├────────┼──────────┼───────────┼─────────────────────┼─────────────────┼─────────┼────────────────────┤
+│  1     │  cscli   │  Ip       │  1.2.3.4            │  Test ban       │  ban    │  4m59s             │
+╰────────┴──────────┴───────────┴─────────────────────┴─────────────────┴─────────┴────────────────────╯
 ```
 
-### 15.4 Check Active Decisions (Blocked IPs)
+---
+
+#### Step 7: Remove the Test Ban
 
 ```bash
-# View all currently blocked IPs
-kubectl exec -n api-platform $LAPI_POD -- cscli decisions list
-```
-
-### 15.5 Remove the Test Ban
-
-```bash
-# Remove the test ban
 kubectl exec -n api-platform $LAPI_POD -- cscli decisions delete --ip 1.2.3.4
+```
 
-# Verify it's removed
+**Expected Output**: `1 decision(s) deleted`
+
+---
+
+#### Step 8: Verify Ban is Removed
+
+```bash
 kubectl exec -n api-platform $LAPI_POD -- cscli decisions list
 ```
 
-**Expected Output**: No decisions or empty table
+**Expected Output**: Empty table or "No active decisions"
 
-### 15.6 Simulate Brute Force Detection (Optional)
+---
 
-This simulates what happens during a brute force attack:
-
-```bash
-# Make 10 rapid failed login attempts
-for i in {1..10}; do
-  curl -s -X POST $KONG_URL/login \
-    -H "Content-Type: application/json" \
-    -d '{"username":"admin","password":"wrongpassword"}' &
-done
-wait
-
-# Check if CrowdSec detected anything (may take a few seconds)
-sleep 5
-kubectl exec -n api-platform $LAPI_POD -- cscli alerts list
-```
-
-**Note**: Detection depends on agent configuration. The LAPI may not show alerts if the agent isn't collecting logs.
-
-### 15.7 View CrowdSec Metrics
+#### Step 9: View CrowdSec Metrics (Optional)
 
 ```bash
-# Get metrics from CrowdSec
 kubectl exec -n api-platform $LAPI_POD -- cscli metrics
 ```
 
 **Expected Output**: Metrics showing bucket states, parser stats, etc.
+
+---
+
+### All Commands in One Block (Quick Reference)
+
+```bash
+# Set pod name
+LAPI_POD=$(kubectl get pods -n api-platform | grep crowdsec-lapi | awk '{print $1}')
+
+# 1. Check version
+kubectl exec -n api-platform $LAPI_POD -- cscli version
+
+# 2. List scenarios
+kubectl exec -n api-platform $LAPI_POD -- cscli scenarios list
+
+# 3. Ban test IP
+kubectl exec -n api-platform $LAPI_POD -- cscli decisions add --ip 1.2.3.4 --duration 5m --reason "Test ban" --type ban
+
+# 4. View bans
+kubectl exec -n api-platform $LAPI_POD -- cscli decisions list
+
+# 5. Remove ban
+kubectl exec -n api-platform $LAPI_POD -- cscli decisions delete --ip 1.2.3.4
+
+# 6. Verify removed
+kubectl exec -n api-platform $LAPI_POD -- cscli decisions list
+```
+
+---
 
 ### CrowdSec Integration Summary
 

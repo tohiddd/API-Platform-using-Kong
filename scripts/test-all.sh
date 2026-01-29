@@ -303,7 +303,7 @@ fi
 # =============================================================================
 print_header "TEST 14: CrowdSec DDoS Protection Status"
 
-LAPI_POD=$(kubectl get pods -n api-platform -l app=crowdsec-lapi -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+LAPI_POD=$(kubectl get pods -n api-platform 2>/dev/null | grep crowdsec-lapi | awk '{print $1}')
 
 if [ -n "$LAPI_POD" ]; then
     echo "CrowdSec LAPI Pod: $LAPI_POD"
