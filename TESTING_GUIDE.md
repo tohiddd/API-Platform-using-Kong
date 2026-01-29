@@ -838,6 +838,156 @@ kubectl get svc kong-kong-proxy -n api-platform -o jsonpath='{.spec.ports[0].nod
 
 ---
 
+## Test Scenario 15: CrowdSec DDoS Protection (Hands-On)
+
+**Purpose**: Demonstrate CrowdSec's ability to detect and block malicious IPs.
+
+### What is CrowdSec?
+
+CrowdSec is an open-source, crowd-powered security engine that:
+- Detects attack patterns (brute force, DDoS, scanning)
+- Makes real-time blocking decisions
+- Shares threat intelligence across the community
+
+### Architecture in This Project
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│   Traffic       │────▶│   CrowdSec      │────▶│   Decision      │
+│   Logs          │     │   Agent         │     │   (Ban IP)      │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+                               │
+                               ▼
+                        ┌─────────────────┐
+                        │   CrowdSec      │
+                        │   LAPI          │
+                        │   (Decision DB) │
+                        └─────────────────┘
+```
+
+### 15.1 Check CrowdSec Status
+
+```bash
+# Get LAPI pod name
+LAPI_POD=$(kubectl get pods -n api-platform -l app=crowdsec-lapi -o jsonpath='{.items[0].metadata.name}')
+echo "CrowdSec LAPI Pod: $LAPI_POD"
+
+# Check CrowdSec version
+kubectl exec -n api-platform $LAPI_POD -- cscli version
+```
+
+**Expected Output**:
+```
+version: v1.x.x
+...
+```
+
+### 15.2 List Installed Detection Scenarios
+
+```bash
+# See what attack patterns CrowdSec can detect
+kubectl exec -n api-platform $LAPI_POD -- cscli scenarios list
+```
+
+**Expected Output**: List of detection scenarios like:
+```
+crowdsecurity/http-bf-wordpress_bf
+crowdsecurity/http-crawl-non_statics
+crowdsecurity/http-probing
+crowdsecurity/ssh-bf
+...
+```
+
+### 15.3 Simulate IP Ban (Manual Decision)
+
+This demonstrates what happens when CrowdSec detects an attack:
+
+```bash
+# Ban a test IP for 5 minutes (simulating attack detection)
+kubectl exec -n api-platform $LAPI_POD -- cscli decisions add --ip 1.2.3.4 --duration 5m --reason "Manual test ban" --type ban
+
+# Verify the decision was added
+kubectl exec -n api-platform $LAPI_POD -- cscli decisions list
+```
+
+**Expected Output**:
+```
+╭────────┬──────────┬───────────┬─────────────────────┬────────┬─────────┬────────────────────╮
+│   ID   │  Source  │  Scope    │       Value         │ Reason │ Action  │     Expiration     │
+├────────┼──────────┼───────────┼─────────────────────┼────────┼─────────┼────────────────────┤
+│  1     │  cscli   │  Ip       │  1.2.3.4            │ Manual │  ban    │  4m59s             │
+╰────────┴──────────┴───────────┴─────────────────────┴────────┴─────────┴────────────────────╯
+```
+
+### 15.4 Check Active Decisions (Blocked IPs)
+
+```bash
+# View all currently blocked IPs
+kubectl exec -n api-platform $LAPI_POD -- cscli decisions list
+```
+
+### 15.5 Remove the Test Ban
+
+```bash
+# Remove the test ban
+kubectl exec -n api-platform $LAPI_POD -- cscli decisions delete --ip 1.2.3.4
+
+# Verify it's removed
+kubectl exec -n api-platform $LAPI_POD -- cscli decisions list
+```
+
+**Expected Output**: No decisions or empty table
+
+### 15.6 Simulate Brute Force Detection (Optional)
+
+This simulates what happens during a brute force attack:
+
+```bash
+# Make 10 rapid failed login attempts
+for i in {1..10}; do
+  curl -s -X POST $KONG_URL/login \
+    -H "Content-Type: application/json" \
+    -d '{"username":"admin","password":"wrongpassword"}' &
+done
+wait
+
+# Check if CrowdSec detected anything (may take a few seconds)
+sleep 5
+kubectl exec -n api-platform $LAPI_POD -- cscli alerts list
+```
+
+**Note**: Detection depends on agent configuration. The LAPI may not show alerts if the agent isn't collecting logs.
+
+### 15.7 View CrowdSec Metrics
+
+```bash
+# Get metrics from CrowdSec
+kubectl exec -n api-platform $LAPI_POD -- cscli metrics
+```
+
+**Expected Output**: Metrics showing bucket states, parser stats, etc.
+
+### CrowdSec Integration Summary
+
+| Component | Purpose | Status |
+|-----------|---------|--------|
+| LAPI (Local API) | Decision engine, stores bans | ✅ Running |
+| Agent | Log collector, detects attacks | ⚠️ Optional (may have issues on local) |
+| Scenarios | Attack detection patterns | ✅ Loaded |
+| Bouncers | Enforce decisions (block IPs) | ℹ️ Kong integration ready |
+
+### Why CrowdSec for DDoS Protection?
+
+| Criteria | CrowdSec | Alternative |
+|----------|----------|-------------|
+| Open Source | ✅ Yes | ModSecurity ✅ |
+| Kubernetes Native | ✅ Helm chart | ModSecurity ⚠️ |
+| Community Threat Intel | ✅ Shared blocklists | ❌ No |
+| Easy Integration | ✅ Bouncer plugins | ⚠️ Complex |
+| Resource Efficient | ✅ Lightweight | ❌ Heavy |
+
+---
+
 ## Troubleshooting
 
 ### Issue: "Connection refused"

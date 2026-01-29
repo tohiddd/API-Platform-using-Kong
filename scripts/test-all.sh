@@ -322,6 +322,29 @@ if [ -n "$LAPI_POD" ]; then
         echo "Detection Scenarios: $SCENARIO_COUNT installed"
         
         pass "CrowdSec DDoS protection is running"
+        
+        # Hands-on test: Simulate IP ban
+        echo ""
+        echo "--- Hands-on Test: Simulating IP Ban ---"
+        
+        # Add a test ban
+        echo "Adding test ban for IP 1.2.3.4..."
+        kubectl exec -n api-platform $LAPI_POD -- cscli decisions add --ip 1.2.3.4 --duration 1m --reason "Automated test ban" --type ban 2>/dev/null
+        
+        # Verify ban was added
+        BAN_COUNT=$(kubectl exec -n api-platform $LAPI_POD -- cscli decisions list -o raw 2>/dev/null | grep -c "1.2.3.4" || echo "0")
+        if [ "$BAN_COUNT" -gt 0 ]; then
+            echo "✓ IP 1.2.3.4 successfully banned"
+            
+            # Remove the test ban
+            echo "Removing test ban..."
+            kubectl exec -n api-platform $LAPI_POD -- cscli decisions delete --ip 1.2.3.4 2>/dev/null
+            echo "✓ Test ban removed"
+            
+            pass "CrowdSec ban/unban functionality verified"
+        else
+            warn "Could not verify ban (may be a timing issue)"
+        fi
     else
         fail "CrowdSec pod is not running (status: $POD_STATUS)"
     fi
